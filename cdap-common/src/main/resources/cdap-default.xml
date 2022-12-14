@@ -5498,4 +5498,10 @@
     </description>
   </property>
 
+  <!-- Configurations for SQL dialect conversion SPI -->
+  <property>
+    <name>sqldialect.extensions.dir</name>
+    <value>/opt/cdap/master/ext/sqldialectconverters</value>
+  </property>
+
 </configuration>

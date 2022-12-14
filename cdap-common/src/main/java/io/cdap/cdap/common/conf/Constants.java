@@ -1988,4 +1988,12 @@ public final class Constants {
     public static final String METADATA_CONSUMER_EXTENSIONS_ENABLED_LIST = "metadata.consumer.extensions.enabled.list";
     public static final String METADATA_CONSUMER_EXTENSIONS_DIR = "metadata.consumer.extensions.dir";
   }
+
+  /**
+   * Constants for SQL dialect conversion service SPI
+   */
+  public static final class SqlDialectConversion {
+    public static final String EXTENSION_DIR = "sqldialect.extensions.dir";
+    public static final String CALCITE_IMPL_NAME = "calcite";
+  }
 }
