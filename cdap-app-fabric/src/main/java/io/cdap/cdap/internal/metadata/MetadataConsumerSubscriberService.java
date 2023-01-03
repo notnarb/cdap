@@ -267,6 +267,7 @@ public class MetadataConsumerSubscriberService extends AbstractMessagingSubscrib
             new DefaultMetadataConsumerContext(cConf, consumer.getName());
           // if there is any error from the implementation, log and continue here
           // as we are already retrying at the service level
+          LOG.info("Emitting lineage - {}", info);
           consumer.consumeLineage(metadataConsumerContext, run, info);
         } catch (Throwable e) {
           LOG.error("Error calling the metadata consumer {}: {}", consumer.getName(), e.getMessage());
@@ -288,13 +289,17 @@ public class MetadataConsumerSubscriberService extends AbstractMessagingSubscrib
     private LineageInfo getLineageInfoForConsumer(FieldLineageInfo lineage, long startTimeMs, long endTimeMs) {
       Map<EndPointField, Set<EndPointField>> incomingSummary = lineage.getIncomingSummary();
       Map<EndPointField, Set<EndPointField>> outgoingSummary = lineage.getOutgoingSummary();
+      Map<Asset, Set<Asset>> incoming = getAssetsMapFromEndpointFieldsMap(incomingSummary);
+      LOG.info("incoming assets map - {}", incoming);
+      Map<Asset, Set<Asset>> outgoing = getAssetsMapFromEndpointFieldsMap(outgoingSummary);
+      LOG.info("outgoing assets map - {}", outgoing);
       return LineageInfo.builder()
         .setStartTimeMs(startTimeMs)
         .setEndTimeMs(endTimeMs)
         .setSources(lineage.getSources().stream().map(this::getAssetForEndpoint).collect(Collectors.toSet()))
         .setTargets(lineage.getDestinations().stream().map(this::getAssetForEndpoint).collect(Collectors.toSet()))
-        .setTargetToSources(getAssetsMapFromEndpointFieldsMap(incomingSummary))
-        .setSourceToTargets(getAssetsMapFromEndpointFieldsMap(outgoingSummary))
+        .setTargetToSources(incoming)
+        .setSourceToTargets(outgoing)
         .build();
     }
 
@@ -310,9 +315,11 @@ public class MetadataConsumerSubscriberService extends AbstractMessagingSubscrib
 
     private Map<Asset, Set<Asset>> getAssetsMapFromEndpointFieldsMap(Map<EndPointField, Set<EndPointField>>
                                                                        endPointFieldSetMap) {
+      LOG.info("end point field set map - {}", endPointFieldSetMap);
       return endPointFieldSetMap.entrySet().stream()
         .collect(Collectors.toMap(entry -> getAssetForEndpoint(entry.getKey().getEndPoint()),
                                   entry -> entry.getValue().stream()
+                                    .filter(EndPointField::isEmpty)
                                     .map(endPointField ->
                                            getAssetForEndpoint(endPointField.getEndPoint()))
                                     .collect(Collectors.toSet()),

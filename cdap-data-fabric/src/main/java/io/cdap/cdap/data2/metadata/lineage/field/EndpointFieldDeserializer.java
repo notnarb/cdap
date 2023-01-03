@@ -21,11 +21,16 @@ import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonPrimitive;
 import io.cdap.cdap.api.lineage.field.EndPoint;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 
 /**
@@ -36,15 +41,34 @@ import javax.annotation.concurrent.NotThreadSafe;
 public class EndpointFieldDeserializer implements JsonDeserializer<EndPointField> {
 
   private final Map<EndPointField, EndPointField> endpointFields = new HashMap<>();
+  private static final Logger LOG = LoggerFactory.getLogger(EndpointFieldDeserializer.class);
 
   @Override
+  @Nullable
   public EndPointField deserialize(JsonElement json, Type typeOfT,
                                    JsonDeserializationContext context) throws JsonParseException {
+    /*JsonObject obj = json.getAsJsonObject();
+    EndPoint endPoint = context.deserialize(obj.getAsJsonObject("endPoint"), EndPoint.class);
+    *//*String field = "";
+    if (obj.getAsJsonPrimitive("field") != null) {
+      field = obj.getAsJsonPrimitive("field").getAsString();
+    }
+    EndPointField endPointField = new EndPointField(endPoint, field);
+    return endpointFields.computeIfAbsent(endPointField, k -> endPointField);*//*
+    EndPointField endPointField = null;
+    if (obj.getAsJsonPrimitive("field") != null) {
+      String field = obj.getAsJsonPrimitive("field").getAsString();
+      endPointField = new EndPointField(endPoint, field);
+    }
+    EndPointField finalEndPointField = endPointField;
+    return endpointFields.computeIfAbsent(endPointField, k -> finalEndPointField);*/
     JsonObject obj = json.getAsJsonObject();
     EndPoint endPoint = context.deserialize(obj.getAsJsonObject("endPoint"), EndPoint.class);
-    String field = obj.getAsJsonPrimitive("field").getAsString();
+    String field = Optional.ofNullable(obj.getAsJsonPrimitive("field"))
+      .map(JsonPrimitive::getAsString).orElse(null);
 
     EndPointField endPointField = new EndPointField(endPoint, field);
+    LOG.info("End point field - {}", endPointField);
     return endpointFields.computeIfAbsent(endPointField, k -> endPointField);
   }
 }

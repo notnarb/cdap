@@ -391,6 +391,13 @@ public class MetadataSubscriberService extends AbstractMessagingSubscriberServic
           .create();
 
         info = message.getPayload(gson, FieldLineageInfo.class);
+        LOG.info("deserialized without any exceptions");
+        LOG.info("inc sum - {}", info.getIncomingSummary());
+        LOG.info("out sum - {}", info.getOutgoingSummary());
+        LOG.info("sources - {}", info.getSources());
+        LOG.info("dest - {}", info.getDestinations());
+        LOG.info("oprns - {}", info.getOperations());
+        LOG.info("dest fields - {}", info.getDestinationFields());
       } catch (Throwable t) {
         LOG.warn("Error while deserializing the field lineage information message received from TMS. Ignoring : {}",
                  message, t);
