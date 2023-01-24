@@ -23,6 +23,7 @@ import io.cdap.cdap.common.BadRequestException;
 import io.cdap.cdap.common.NotFoundException;
 import io.cdap.cdap.common.conf.CConfiguration;
 import io.cdap.cdap.common.conf.Constants;
+import io.cdap.cdap.internal.app.store.AppMetadataStore;
 import io.cdap.cdap.internal.profile.ProfileService;
 import io.cdap.cdap.internal.tethering.runtime.spi.provisioner.TetheringConf;
 import io.cdap.cdap.internal.tethering.runtime.spi.provisioner.TetheringProvisioner;
@@ -31,6 +32,8 @@ import io.cdap.cdap.proto.id.NamespaceId;
 import io.cdap.cdap.proto.id.TopicId;
 import io.cdap.cdap.proto.profile.Profile;
 import io.cdap.cdap.proto.provisioner.ProvisionerPropertyValue;
+import io.cdap.cdap.spi.data.transaction.TransactionRunner;
+import io.cdap.cdap.spi.data.transaction.TransactionRunners;
 import io.cdap.http.AbstractHttpHandler;
 import io.cdap.http.HandlerContext;
 import io.cdap.http.HttpResponder;
@@ -60,20 +63,26 @@ public class TetheringHandler extends AbstractHttpHandler {
   private final CConfiguration cConf;
   private final TetheringStore store;
   private final MessagingService messagingService;
-  private final String topicPrefix;
+  // Prefix of per-client TMS topic used on the tethering server.
+  private final String clientTopicPrefix;
+  // Prefix of program state TMS topic used on the tethering client.
+  private final String programStateTopicPrefix;
   private final ProfileService profileService;
+  private final TransactionRunner transactionRunner;
 
   // Connection timeout in seconds.
   private int connectionTimeout;
 
   @Inject
   TetheringHandler(CConfiguration cConf, TetheringStore store, MessagingService messagingService,
-                   ProfileService profileService) {
+                   ProfileService profileService, TransactionRunner transactionRunner) {
     this.cConf = cConf;
     this.store = store;
     this.messagingService = messagingService;
-    this.topicPrefix = cConf.get(Constants.Tethering.TOPIC_PREFIX);
+    this.clientTopicPrefix = cConf.get(Constants.Tethering.CLIENT_TOPIC_PREFIX);
+    this.programStateTopicPrefix = cConf.get(Constants.Tethering.PROGRAM_STATE_TOPIC_PREFIX);
     this.profileService = profileService;
+    this.transactionRunner = transactionRunner;
   }
 
   @Override
@@ -128,15 +137,24 @@ public class TetheringHandler extends AbstractHttpHandler {
     }
 
     store.deletePeer(peer);
-    // Remove per-peer tethering topic if we're running on the server
-    if (tetheringServerEnabled) {
-      TopicId topic = new TopicId(NamespaceId.SYSTEM.getNamespace(),
-                                  topicPrefix + peer);
-      try {
-        messagingService.deleteTopic(topic);
-      } catch (TopicNotFoundException e) {
-        LOG.info("Topic {} was not found", topic.getTopic());
-      }
+    // Remove per-tethering client topic if we're running on the server
+    // If we're running on the client, remove per-tethering server program status update topic
+    TopicId topic = tetheringServerEnabled ? new TopicId(NamespaceId.SYSTEM.getNamespace(), clientTopicPrefix + peer) :
+      new TopicId(NamespaceId.SYSTEM.getNamespace(), programStateTopicPrefix + peer);
+    try {
+      messagingService.deleteTopic(topic);
+    } catch (TopicNotFoundException e) {
+      LOG.info("Topic {} was not found", topic.getTopic());
+    }
+
+    if (!tetheringServerEnabled) {
+      TransactionRunners.run(transactionRunner, context -> {
+        AppMetadataStore appMetadataStore = AppMetadataStore.create(context);
+        appMetadataStore.deleteSubscriberState(TetheringAgentService.PEER_TOPIC_PREFIX + peer,
+                                               TetheringAgentService.SUBSCRIBER);
+        appMetadataStore.deleteSubscriberState(TetheringAgentService.MSG_TO_PEER_TOPIC_PREFIX + peer,
+                                               TetheringAgentService.SUBSCRIBER);
+      });
     }
     responder.sendStatus(HttpResponseStatus.OK);
   }

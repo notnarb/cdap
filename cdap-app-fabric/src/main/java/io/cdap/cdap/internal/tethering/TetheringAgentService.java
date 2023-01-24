@@ -25,6 +25,9 @@ import io.cdap.cdap.api.common.Bytes;
 import io.cdap.cdap.api.dataset.lib.CloseableIterator;
 import io.cdap.cdap.api.messaging.Message;
 import io.cdap.cdap.api.messaging.MessageFetcher;
+import io.cdap.cdap.api.messaging.MessagePublisher;
+import io.cdap.cdap.api.messaging.TopicAlreadyExistsException;
+import io.cdap.cdap.api.messaging.TopicNotFoundException;
 import io.cdap.cdap.app.guice.ClusterMode;
 import io.cdap.cdap.app.program.ProgramDescriptor;
 import io.cdap.cdap.app.runtime.Arguments;
@@ -36,6 +39,7 @@ import io.cdap.cdap.common.conf.Constants;
 import io.cdap.cdap.common.namespace.NamespaceQueryAdmin;
 import io.cdap.cdap.common.service.AbstractRetryableScheduledService;
 import io.cdap.cdap.common.service.RetryStrategies;
+import io.cdap.cdap.common.utils.ImmutablePair;
 import io.cdap.cdap.internal.app.ApplicationSpecificationAdapter;
 import io.cdap.cdap.internal.app.runtime.BasicArguments;
 import io.cdap.cdap.internal.app.runtime.ProgramOptionConstants;
@@ -50,6 +54,7 @@ import io.cdap.cdap.internal.provision.ProvisionerNotifier;
 import io.cdap.cdap.internal.tethering.proto.v1.TetheringLaunchMessage;
 import io.cdap.cdap.logging.gateway.handlers.ProgramRunRecordFetcher;
 import io.cdap.cdap.messaging.MessagingService;
+import io.cdap.cdap.messaging.TopicMetadata;
 import io.cdap.cdap.messaging.context.MultiThreadMessagingContext;
 import io.cdap.cdap.proto.NamespaceMeta;
 import io.cdap.cdap.proto.Notification;
@@ -58,6 +63,7 @@ import io.cdap.cdap.proto.RunRecord;
 import io.cdap.cdap.proto.id.NamespaceId;
 import io.cdap.cdap.proto.id.ProgramId;
 import io.cdap.cdap.proto.id.ProgramRunId;
+import io.cdap.cdap.proto.id.TopicId;
 import io.cdap.cdap.proto.profile.Profile;
 import io.cdap.cdap.runtime.spi.ProgramRunInfo;
 import io.cdap.cdap.security.spi.authenticator.RemoteAuthenticator;
@@ -74,6 +80,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -92,8 +99,11 @@ public class TetheringAgentService extends AbstractRetryableScheduledService {
     .registerTypeAdapter(Arguments.class, new ArgumentsCodec())
     .registerTypeAdapter(ProgramOptions.class, new ProgramOptionsCodec())
     .create();
-  private static final String SUBSCRIBER = "tether.agent";
-  private static final String PEER_TOPIC_PREFIX = "tethering.peer.message.state.";
+  // Prefix of per-peer topic that contains id of last control message received
+  static final String PEER_TOPIC_PREFIX = "tethering.peer.message.state.";
+  static final String SUBSCRIBER = "tether.agent";
+  // Prefix of per-peer topic that contains last message id sent
+  static final String MSG_TO_PEER_TOPIC_PREFIX = "tethering.peer.message.sent.state.";
 
   public static final String REMOTE_TETHERING_AUTHENTICATOR = "remoteTetheringAuthenticator";
 
@@ -112,8 +122,13 @@ public class TetheringAgentService extends AbstractRetryableScheduledService {
   private final String programUpdateTopic;
   private final int programUpdateFetchSize;
   private final TetheringClient tetheringClient;
+  private final MessagingService messagingService;
+  private final MessagePublisher messagePublisher;
+  // Tracks id of the last program status update message that was read and processed from per-peer topic.
+  private final Map<String, String> lastMessageIdForPeer;
   // Tracks id of last program status update message that was processed.
   private String lastProgramUpdateMessageId;
+  private final String programStateTopicPrefix;
 
   @Inject
   TetheringAgentService(CConfiguration cConf, TransactionRunner transactionRunner, TetheringStore store,
@@ -126,11 +141,14 @@ public class TetheringAgentService extends AbstractRetryableScheduledService {
     super(RetryStrategies.fromConfiguration(cConf, "tethering.agent."));
     this.connectionInterval = TimeUnit.SECONDS.toMillis(cConf.getLong(Constants.Tethering.CONNECTION_INTERVAL));
     this.cConf = cConf;
+    this.programStateTopicPrefix = cConf.get(Constants.Tethering.PROGRAM_STATE_TOPIC_PREFIX);
     this.transactionRunner = transactionRunner;
     this.store = store;
     this.peerToLastControlMessageIds = new HashMap<>();
     this.programStateWriter = programStateWriter;
+    this.messagingService = messagingService;
     this.messageFetcher = new MultiThreadMessagingContext(messagingService).getMessageFetcher();
+    this.messagePublisher = new MultiThreadMessagingContext(messagingService).getMessagePublisher();
     this.runRecordFetcher = programRunRecordFetcher;
     this.locationFactory = locationFactory;
     this.provisionerNotifier = provisionerNotifier;
@@ -138,6 +156,7 @@ public class TetheringAgentService extends AbstractRetryableScheduledService {
     this.programUpdateTopic = cConf.get(Constants.AppFabric.PROGRAM_STATUS_RECORD_EVENT_TOPIC);
     this.tetheringClient = new TetheringClient(remoteAuthenticator, cConf);
     this.programUpdateFetchSize = cConf.getInt(Constants.AppFabric.STATUS_EVENT_FETCH_SIZE);
+    this.lastMessageIdForPeer = new HashMap<>();
   }
 
   @Override
@@ -157,14 +176,15 @@ public class TetheringAgentService extends AbstractRetryableScheduledService {
       .collect(Collectors.toList());
 
     PeerProgramUpdates peerProgramUpdates = getPeerProgramUpdates(lastProgramUpdateMessageId);
+    persistNotifications(peerProgramUpdates, peers);
     for (PeerInfo peer : peers) {
       // Endpoint should never be null here. Endpoint is only null on the server side.
       Preconditions.checkArgument(peer.getEndpoint() != null,
                                   "Peer %s doesn't have an endpoint", peer.getName());
       String lastControlMessageId = peerToLastControlMessageIds.get(peer.getName());
-      List<Notification> notificationList = peerProgramUpdates.peerToNotifications.get(peer.getName());
+      ImmutablePair<List<Notification>, String> p = getProgramStateUpdates(peer.getName());
       TetheringControlChannelRequest channelRequest = new TetheringControlChannelRequest(lastControlMessageId,
-                                                                                         notificationList);
+                                                                                         p.getFirst());
       TetheringControlResponseV2 response;
       try {
         response = tetheringClient.pollControlChannel(peer, channelRequest);
@@ -172,6 +192,7 @@ public class TetheringAgentService extends AbstractRetryableScheduledService {
         LOG.debug("Failed to create control channel to {}", peer.getName(), e);
         continue;
       }
+      lastMessageIdForPeer.put(peer.getName(), p.getSecond());
 
       switch (response.getTetheringStatus()) {
         case PENDING:
@@ -201,6 +222,10 @@ public class TetheringAgentService extends AbstractRetryableScheduledService {
       for (Map.Entry<String, String> entry : peerToLastControlMessageIds.entrySet()) {
         appMetadataStore.persistSubscriberState(PEER_TOPIC_PREFIX + entry.getKey(), SUBSCRIBER, entry.getValue());
       }
+      for (Map.Entry<String, String> entry : lastMessageIdForPeer.entrySet()) {
+        appMetadataStore.persistSubscriberState(MSG_TO_PEER_TOPIC_PREFIX + entry.getKey(), SUBSCRIBER,
+                                                entry.getValue());
+      }
       appMetadataStore.persistSubscriberState(programUpdateTopic, SUBSCRIBER, lastProgramUpdateMessageId);
     });
 
@@ -223,6 +248,9 @@ public class TetheringAgentService extends AbstractRetryableScheduledService {
       for (String peer : peers) {
         String messageId = appMetadataStore.retrieveSubscriberState(PEER_TOPIC_PREFIX + peer, SUBSCRIBER);
         peerToLastControlMessageIds.put(peer, messageId);
+
+        messageId = appMetadataStore.retrieveSubscriberState(MSG_TO_PEER_TOPIC_PREFIX + peer, SUBSCRIBER);
+        lastMessageIdForPeer.put(peer, messageId);
       }
       // Initialize subscriber based on last message fetched by RuntimeProgramStatusSubscriberService.
       // This is to avoid fetching existing program history from before TetheringAgent was added
@@ -410,6 +438,59 @@ public class TetheringAgentService extends AbstractRetryableScheduledService {
       LOG.error("Exception when fetching program updates. Will retry again during next poll", e);
     }
     return new PeerProgramUpdates(peerToNotifications, lastMessageId);
+  }
+
+  /**
+   * Reads from per-peer topic and returns program status updates for the given tethered peer.
+   */
+  private ImmutablePair<List<Notification>, String> getProgramStateUpdates(String peerName) {
+    String topic = programStateTopicPrefix + peerName;
+    String lastMessageId = lastMessageIdForPeer.get(peerName);
+    List<Notification> programUpdates = new ArrayList<>();
+    try (CloseableIterator<Message> iterator = messageFetcher.fetch(NamespaceId.SYSTEM.getNamespace(),
+                                                                    topic,
+                                                                    programUpdateFetchSize,
+                                                                    lastMessageIdForPeer.get(peerName))) {
+      while (iterator.hasNext()) {
+        Message message = iterator.next();
+        programUpdates.add(message.decodePayload(r -> GSON.fromJson(r, Notification.class)));
+        lastMessageId = message.getId();
+      }
+    } catch (TopicNotFoundException e) {
+      createTopicIfNeeded(new TopicId(NamespaceId.SYSTEM.getNamespace(), topic));
+    } catch (IOException e) {
+      LOG.error("Exception when fetching program updates from per-peer topic. Will retry again during next poll", e);
+    }
+    return ImmutablePair.of(programUpdates, lastMessageId);
+  }
+
+  private void persistNotifications(PeerProgramUpdates peerProgramUpdates, List<PeerInfo> peers) throws IOException {
+    for (PeerInfo peer: peers) {
+      String peerName = peer.getName();
+      List<String> notifications = peerProgramUpdates.peerToNotifications.getOrDefault(peerName, new ArrayList<>())
+        .stream().map(n -> GSON.toJson(n)).collect(Collectors.toList());
+      if (notifications.isEmpty()) {
+        continue;
+      }
+      String topic = programStateTopicPrefix + peerName;
+      try {
+        messagePublisher.publish(NamespaceId.SYSTEM.getNamespace(), topic,
+                                 notifications.toArray(new String[0]));
+      } catch (TopicNotFoundException e) {
+        createTopicIfNeeded(new TopicId(NamespaceId.SYSTEM.getNamespace(), topic));
+      }
+    }
+  }
+
+  private void createTopicIfNeeded(TopicId topicId) {
+    try {
+      messagingService.createTopic(new TopicMetadata(topicId, Collections.emptyMap()));
+      LOG.debug("Created topic {}", topicId.getTopic());
+    } catch (TopicAlreadyExistsException ex) {
+      // no-op
+    } catch (IOException ex) {
+      LOG.error("Failed to create topic {}", topicId.getTopic(), ex);
+    }
   }
 
   /**
