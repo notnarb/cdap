@@ -31,8 +31,11 @@ public class RepositoryConfig {
   private final String pathPrefix;
   private final AuthConfig auth;
 
-  private RepositoryConfig(Provider provider, String link, String defaultBranch, AuthConfig authConfig,
-                           @Nullable String pathPrefix) {
+  public RepositoryConfig(Provider provider,
+                          String link,
+                          String defaultBranch,
+                          AuthConfig authConfig,
+                          @Nullable String pathPrefix) {
     this.provider = provider;
     this.link = link;
     this.defaultBranch = defaultBranch;
@@ -51,7 +54,7 @@ public class RepositoryConfig {
   public String getDefaultBranch() {
     return defaultBranch;
   }
-  
+
   @Nullable
   public String getPathPrefix() {
     return pathPrefix;
@@ -144,7 +147,7 @@ public class RepositoryConfig {
       this.tokenName = tokenName;
       return this;
     }
-    
+
     public Builder setUsername(String username) {
       this.username = username;
       return this;
