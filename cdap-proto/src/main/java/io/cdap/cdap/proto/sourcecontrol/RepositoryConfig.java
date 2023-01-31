@@ -31,8 +31,8 @@ public class RepositoryConfig {
   private final String pathPrefix;
   private final AuthConfig auth;
 
-  private RepositoryConfig(Provider provider, String link, String defaultBranch, AuthConfig authConfig,
-                           @Nullable String pathPrefix) {
+  private RepositoryConfig(Provider provider, String link, @Nullable String defaultBranch,
+                           AuthConfig authConfig, @Nullable String pathPrefix) {
     this.provider = provider;
     this.link = link;
     this.defaultBranch = defaultBranch;

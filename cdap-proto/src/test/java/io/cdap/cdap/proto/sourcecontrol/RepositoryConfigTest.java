@@ -30,7 +30,6 @@ public class RepositoryConfigTest {
   private static final String TOKEN_NAME = "token";
   private static final String USERNAME = "user";
 
-
   @Test
   public void testValidRepositoryConfig() {
     RepositoryConfig repo = new RepositoryConfig.Builder().setProvider(PROVIDER)

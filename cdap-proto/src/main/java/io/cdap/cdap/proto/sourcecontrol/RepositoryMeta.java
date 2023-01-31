@@ -17,27 +17,22 @@
 package io.cdap.cdap.proto.sourcecontrol;
 
 /**
- * The request class to set or test repository configuration.
+ * Metadata for repository configuration.
  */
-public class RepositoryConfigRequest {
-  private final boolean test;
+public class RepositoryMeta {
   private final RepositoryConfig config;
+  private final long updateTime;
 
-  public RepositoryConfigRequest(RepositoryConfig config, boolean test) {
-    this.config = config;
-    this.test = test;
-  }
-
-  public RepositoryConfigRequest(RepositoryConfig config) {
-    this.config = config;
-    this.test = false;
-  }
-
-  public boolean shouldTest() {
-    return test;
+  public RepositoryMeta(RepositoryConfig config, long updateTime) {
+    this.config = new RepositoryConfig.Builder(config).build();
+    this.updateTime = updateTime;
   }
 
   public RepositoryConfig getConfig() {
     return config;
+  }
+
+  public long getUpdateTime() {
+    return updateTime;
   }
 }
