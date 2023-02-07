@@ -1,5 +1,5 @@
 /*
- * Copyright © 2019 Cask Data, Inc.
+ * Copyright © 2023 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -60,9 +60,9 @@ public class CloudSecretManagerClient {
 
   public CloudSecretManagerClient(Map<String, String> properties) throws IOException {
     String projectId =
-        properties.containsKey(PROJECT_ID)
-            ? properties.get(PROJECT_ID)
-            : ServiceOptions.getDefaultProjectId();
+      properties.containsKey(PROJECT_ID)
+        ? properties.get(PROJECT_ID)
+        : ServiceOptions.getDefaultProjectId();
     this.secretManager = createClient(properties);
     this.projectResourceName = "projects/" + projectId;
   }
@@ -79,7 +79,7 @@ public class CloudSecretManagerClient {
             .setSecretId(
                 getSecretId(
                     wrappedSecret.getNamespace(), wrappedSecret.getCdapSecretMetadata().getName()))
-        .setSecret(wrappedSecret.getGcpSecret(getSecretResourceName(wrappedSecret)))
+            .setSecret(wrappedSecret.getGcpSecret(getSecretResourceName(wrappedSecret)))
             .build();
 
     secretManager.createSecret(request);
@@ -132,10 +132,10 @@ public class CloudSecretManagerClient {
    */
   public byte[] getSecretData(WrappedSecret secret) {
     return secretManager
-        .accessSecretVersion(String.format("%s/versions/latest", getSecretResourceName(secret)))
-        .getPayload()
-        .getData()
-        .toByteArray();
+            .accessSecretVersion(String.format("%s/versions/latest", getSecretResourceName(secret)))
+            .getPayload()
+            .getData()
+            .toByteArray();
   }
 
   /**
@@ -214,15 +214,15 @@ public class CloudSecretManagerClient {
     }
   }
 
-    private static SecretManagerServiceClient createClient(Map<String, String> properties)
+  private static SecretManagerServiceClient createClient(Map<String, String> properties)
       throws IOException {
     SecretManagerServiceSettings.Builder settings = SecretManagerServiceSettings.newBuilder();
 
     createCredentialsProvider(properties)
-        .ifPresent(
-            (credentials) -> {
-              settings.setCredentialsProvider(credentials);
-            });
+            .ifPresent(
+                (credentials) -> {
+                  settings.setCredentialsProvider(credentials);
+                });
     return SecretManagerServiceClient.create(settings.build());
   }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2019 Cask Data, Inc.
+ * Copyright © 2023 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -18,6 +18,7 @@ package io.cdap.cdap.securestore.gcp.cloudsecretmanager;
 
 import com.google.api.gax.rpc.ApiException;
 import com.google.api.gax.rpc.StatusCode;
+import com.google.common.annotations.VisibleForTesting;
 import io.cdap.cdap.securestore.spi.SecretManager;
 import io.cdap.cdap.securestore.spi.SecretManagerContext;
 import io.cdap.cdap.securestore.spi.SecretNotFoundException;
@@ -56,6 +57,11 @@ public class GcpSecretManager implements SecretManager {
     this.client = new CloudSecretManagerClient(context.getProperties());
   }
 
+  @VisibleForTesting
+  void initialize(CloudSecretManagerClient client) {
+    this.client = client;
+  }
+
   @Override
   public void store(String namespace, Secret secret) throws IOException {
     WrappedSecret wrappedSecret = WrappedSecret.fromMetadata(namespace, secret.getMetadata());
@@ -69,11 +75,16 @@ public class GcpSecretManager implements SecretManager {
       if (!Arrays.equals(existingSecret.getData(), secret.getData())) {
         client.addSecretVersion(wrappedSecret, secret.getData());
       }
-    } catch (SecretNotFoundException e) {
-      client.createSecret(wrappedSecret);
-      client.addSecretVersion(wrappedSecret, secret.getData());
+    } catch (SecretNotFoundException unused) {
+      try {
+        client.createSecret(wrappedSecret);
+        client.addSecretVersion(wrappedSecret, secret.getData());
+      } catch (ApiException e) {
+        throw new IOException("Secret Manager create API call failed", e);
+      }
     } catch (ApiException e) {
-      throw new IOException("Secret Manager API Call failed", e);
+      // Note: 'get' already has a handler for ApiExceptions.
+      throw new IOException("Secret Manager update API call failed", e);
     }
   }
 
@@ -87,21 +98,28 @@ public class GcpSecretManager implements SecretManager {
       if (e.getStatusCode().getCode() == StatusCode.Code.NOT_FOUND) {
         throw new SecretNotFoundException(namespace, name);
       }
-      throw new IOException("Secret Manager API call failed", e);
+      throw new IOException("Secret Manager get API call failed", e);
     }
   }
 
   @Override
   public Collection<SecretMetadata> list(String namespace) throws IOException {
-    return client.listSecrets(namespace).stream()
-        .map(WrappedSecret::getCdapSecretMetadata)
-        .collect(Collectors.toList());
+    try {
+      return client.listSecrets(namespace).stream()
+          .map(WrappedSecret::getCdapSecretMetadata)
+          .collect(Collectors.toList());
+    } catch (ApiException e) {
+      throw new IOException("Secret Manager list API call failed", e);
+    }
   }
 
   @Override
   public void delete(String namespace, String name) throws SecretNotFoundException, IOException {
-    client.deleteSecret(namespace, name);
-
+    try {
+      client.deleteSecret(namespace, name);
+    } catch (ApiException e) {
+      throw new IOException("Secret Manager delete API call failed", e);
+    }
   }
 
   @Override
