@@ -38,7 +38,6 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -78,7 +77,7 @@ public class GcpSecretManagerTest {
     byte[] payload = "Foo".getBytes();
     SecretMetadata metadata = createMetadata("example");
     when(client.getSecret(ArgumentMatchers.any(), ArgumentMatchers.any()))
-            .thenReturn(WrappedSecret.fromMetadata(NAMESPACE, metadata));
+      .thenReturn(WrappedSecret.fromMetadata(NAMESPACE, metadata));
     when(client.getSecretData(ArgumentMatchers.any())).thenReturn(payload);
 
     // Metadata [potentially] updated, payload remains the same.
@@ -96,7 +95,7 @@ public class GcpSecretManagerTest {
     byte[] newPayload = "Bar".getBytes();
     SecretMetadata metadata = createMetadata("example");
     when(client.getSecret(ArgumentMatchers.any(), ArgumentMatchers.any()))
-            .thenReturn(WrappedSecret.fromMetadata(NAMESPACE, metadata));
+      .thenReturn(WrappedSecret.fromMetadata(NAMESPACE, metadata));
     when(client.getSecretData(ArgumentMatchers.any())).thenReturn(oldPayload);
 
     secretManager.store(NAMESPACE, new Secret(newPayload, metadata));
@@ -110,7 +109,7 @@ public class GcpSecretManagerTest {
   public void store_exception() throws Exception {
     ApiException exception = createApiException(Code.PERMISSION_DENIED);
     when(client.getSecret(ArgumentMatchers.any(), ArgumentMatchers.any()))
-        .thenThrow(exception);
+      .thenThrow(exception);
 
     assertThrows(IOException.class, () -> secretManager.store(NAMESPACE, createSecret("example")));
   }
@@ -120,7 +119,7 @@ public class GcpSecretManagerTest {
     byte[] payload = "example".getBytes();
     SecretMetadata metadata = createMetadata("example");
     when(client.getSecret(ArgumentMatchers.any(), ArgumentMatchers.any()))
-            .thenReturn(WrappedSecret.fromMetadata(NAMESPACE, metadata));
+      .thenReturn(WrappedSecret.fromMetadata(NAMESPACE, metadata));
     when(client.getSecretData(ArgumentMatchers.any())).thenReturn(payload);
 
     Secret secret = secretManager.get(NAMESPACE, "example");
@@ -149,9 +148,9 @@ public class GcpSecretManagerTest {
     SecretMetadata item1 = createMetadata("example1");
     SecretMetadata item2 = createMetadata("example2");
     when(client.listSecrets(ArgumentMatchers.any())).thenReturn(
-        ImmutableList.of(
-            WrappedSecret.fromMetadata(NAMESPACE, item1),
-            WrappedSecret.fromMetadata(NAMESPACE, item2)));
+      ImmutableList.of(
+        WrappedSecret.fromMetadata(NAMESPACE, item1),
+        WrappedSecret.fromMetadata(NAMESPACE, item2)));
 
     ImmutableList<SecretMetadata> list = ImmutableList.copyOf(secretManager.list(NAMESPACE));
 
@@ -174,7 +173,6 @@ public class GcpSecretManagerTest {
     assertThrows(IOException.class, () -> secretManager.delete(NAMESPACE, "example"));
   }
 
-
   private static Secret createSecret(String name) {
     return new Secret(name.getBytes(), createMetadata(name));
   }
@@ -184,9 +182,20 @@ public class GcpSecretManagerTest {
   }
 
   private static ApiException createApiException(Code code) {
-    StatusCode statusCode = mock(StatusCode.class);
-    when(statusCode.getCode()).thenReturn(code);
+    return new ApiException(new RuntimeException("Fake Exception"), createStatusCode(code), true);
+  }
 
-    return new ApiException(new RuntimeException("Fake Exception"), statusCode, true);
+  private static StatusCode createStatusCode(Code code) {
+    return new StatusCode() {
+      @Override
+      public Code getCode() {
+        return code;
+      }
+
+      @Override
+      public Object getTransportCode() {
+        throw new RuntimeException("unimplemented");
+      }
+    };
   }
 }

@@ -37,7 +37,7 @@ import java.util.Optional;
  * <p>Does not contain the underlying secret payload.
  */
 public final class WrappedSecret {
-  private static final Gson gson = new Gson();
+  private static final Gson GSON = new Gson();
 
   private final String namespace;
   private final SecretMetadata secretMetadata;
@@ -74,25 +74,25 @@ public final class WrappedSecret {
    */
   public Secret getGcpSecret(String resourceName) {
     return Secret.newBuilder()
-        // Set replication policy to automatic (as opposed to user-managed) and do not specify a
-        // CMEK (use google-managed key).
-        .setReplication(Replication.newBuilder().setAutomatic(Automatic.getDefaultInstance()))
-        .setName(resourceName)
-        .putAnnotations("cdap_namespace", namespace)
-        .putAnnotations("cdap_secret_name", secretMetadata.getName())
-        .putAnnotations(
-            "cdap_description", Optional.ofNullable(secretMetadata.getDescription()).orElse(""))
-        .putAnnotations("cdap_props", serializeProps(secretMetadata.getProperties()))
-        .build();
+      // Set replication policy to automatic (as opposed to user-managed) and do not specify a
+      // CMEK (use google-managed key).
+      .setReplication(Replication.newBuilder().setAutomatic(Automatic.getDefaultInstance()))
+      .setName(resourceName)
+      .putAnnotations("cdap_namespace", namespace)
+      .putAnnotations("cdap_secret_name", secretMetadata.getName())
+      .putAnnotations(
+          "cdap_description", Optional.ofNullable(secretMetadata.getDescription()).orElse(""))
+      .putAnnotations("cdap_props", serializeProps(secretMetadata.getProperties()))
+      .build();
   }
 
   private static SecretMetadata toSecretMetadata(Secret secret) throws IOException {
 
     return new SecretMetadata(
-        /* name= */ secret.getAnnotationsOrDefault("cdap_secret_name", ""),
-        /* description= */ secret.getAnnotationsOrDefault("cdap_description", ""),
-        /* creationTimeMs= */ Timestamps.toMillis(secret.getCreateTime()),
-        /* properties= */ deserializeProps(secret.getAnnotationsOrDefault("cdap_props", "{}")));
+      secret.getAnnotationsOrDefault("cdap_secret_name", ""),
+      secret.getAnnotationsOrDefault("cdap_description", ""),
+      Timestamps.toMillis(secret.getCreateTime()),
+      deserializeProps(secret.getAnnotationsOrDefault("cdap_props", "{}")));
   }
 
   private static String getNamespace(Secret secret) {
@@ -100,7 +100,7 @@ public final class WrappedSecret {
   }
 
   private static String serializeProps(Map<String, String> input) {
-    return gson.toJson(input);
+    return GSON.toJson(input);
   }
 
   /**
@@ -109,7 +109,7 @@ public final class WrappedSecret {
    */
   private static Map<String, String> deserializeProps(String input) throws IOException {
     try {
-      return gson.fromJson(input, new TypeToken<Map<String, String>>() { }.getType());
+      return GSON.fromJson(input, new TypeToken<Map<String, String>>() { }.getType());
     } catch (JsonSyntaxException e) {
       throw new IOException("Failed to parse cdap_props", e);
     }

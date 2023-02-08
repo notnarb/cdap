@@ -648,6 +648,13 @@
                         <include>*.jar</include>
                       </includes>
                     </resource>
+		    <resource>
+                      <directory>${project.parent.basedir}/cdap-securestore-ext-gcp-secretstore/target/libexec</directory>
+                      <targetPath>ext/securestores/gcp-secretstore</targetPath>
+                      <includes>
+                        <include>*.jar</include>
+                      </includes>
+                    </resource>
                   </resources>
                 </configuration>
               </execution>

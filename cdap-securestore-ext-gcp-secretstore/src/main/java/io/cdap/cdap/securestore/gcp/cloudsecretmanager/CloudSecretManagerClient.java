@@ -58,6 +58,7 @@ public class CloudSecretManagerClient {
   // GCP project resource name e.g. "project/my-project-id".
   private final String projectResourceName;
 
+  /** Throws IOException if the underlying {@link SecretManagerServiceClient} fails to be created. */
   public CloudSecretManagerClient(Map<String, String> properties) throws IOException {
     String projectId =
       properties.containsKey(PROJECT_ID)
@@ -72,15 +73,15 @@ public class CloudSecretManagerClient {
    *
    * @throws ApiException if Google API call fails.
    */
-  public void createSecret(WrappedSecret wrappedSecret) throws IOException {
+  public void createSecret(WrappedSecret wrappedSecret) {
     CreateSecretRequest request =
-        CreateSecretRequest.newBuilder()
-            .setParent(projectResourceName)
-            .setSecretId(
-                getSecretId(
-                    wrappedSecret.getNamespace(), wrappedSecret.getCdapSecretMetadata().getName()))
-            .setSecret(wrappedSecret.getGcpSecret(getSecretResourceName(wrappedSecret)))
-            .build();
+      CreateSecretRequest.newBuilder()
+        .setParent(projectResourceName)
+        .setSecretId(
+          getSecretId(
+            wrappedSecret.getNamespace(), wrappedSecret.getCdapSecretMetadata().getName()))
+        .setSecret(wrappedSecret.getGcpSecret(getSecretResourceName(wrappedSecret)))
+        .build();
 
     secretManager.createSecret(request);
   }
@@ -90,14 +91,14 @@ public class CloudSecretManagerClient {
    *
    * @throws ApiException if Google API call fails.
    */
-  public void addSecretVersion(WrappedSecret wrappedSecret, byte[] data) throws IOException {
+  public void addSecretVersion(WrappedSecret wrappedSecret, byte[] data) {
     SecretPayload secretPayload =
-        SecretPayload.newBuilder().setData(ByteString.copyFrom(data)).build();
+      SecretPayload.newBuilder().setData(ByteString.copyFrom(data)).build();
     AddSecretVersionRequest addSecretReq =
-        AddSecretVersionRequest.newBuilder()
-            .setParent(getSecretResourceName(wrappedSecret))
-            .setPayload(secretPayload)
-            .build();
+      AddSecretVersionRequest.newBuilder()
+        .setParent(getSecretResourceName(wrappedSecret))
+        .setPayload(secretPayload)
+        .build();
 
     secretManager.addSecretVersion(addSecretReq);
   }
@@ -107,13 +108,14 @@ public class CloudSecretManagerClient {
    * over all pages.
    *
    * @throws ApiException if Google API call fails.
+   * @throws IOException if parsing the JSON-encoded annotations failse.
    */
   public ImmutableList<WrappedSecret> listSecrets(String namespace) throws IOException {
     ListSecretsRequest request =
-        ListSecretsRequest.newBuilder()
-            .setFilter("annotations.cdap_namespace=" + namespace)
-            .setParent(projectResourceName)
-            .build();
+      ListSecretsRequest.newBuilder()
+        .setFilter("annotations.cdap_namespace=" + namespace)
+        .setParent(projectResourceName)
+        .build();
 
     // Iterate rather than stream to easily propagate checked exception.
     ImmutableList.Builder<WrappedSecret> secrets = ImmutableList.builder();
@@ -132,20 +134,21 @@ public class CloudSecretManagerClient {
    */
   public byte[] getSecretData(WrappedSecret secret) {
     return secretManager
-            .accessSecretVersion(String.format("%s/versions/latest", getSecretResourceName(secret)))
-            .getPayload()
-            .getData()
-            .toByteArray();
+      .accessSecretVersion(String.format("%s/versions/latest", getSecretResourceName(secret)))
+      .getPayload()
+      .getData()
+      .toByteArray();
   }
 
   /**
    * Returns the secret metadata for the specified secret. Does not fetch its secret payload.
    *
    * @throws ApiException if Google API call fails.
+   * @throws IOException if parsing the JSON-encoded annotations failse.
    */
   public WrappedSecret getSecret(String namespace, String name) throws IOException {
     return WrappedSecret.fromGcpSecret(
-        secretManager.getSecret(getSecretResourceName(namespace, name)));
+      secretManager.getSecret(getSecretResourceName(namespace, name)));
   }
 
   /**
@@ -157,8 +160,8 @@ public class CloudSecretManagerClient {
   public void updateSecret(WrappedSecret wrappedSecret) {
     // Update all fields.
     secretManager.updateSecret(
-        wrappedSecret.getGcpSecret(getSecretResourceName(wrappedSecret)),
-        FieldMask.newBuilder().addPaths("annotations").build());
+      wrappedSecret.getGcpSecret(getSecretResourceName(wrappedSecret)),
+      FieldMask.newBuilder().addPaths("annotations").build());
   }
 
   /**
@@ -203,7 +206,7 @@ public class CloudSecretManagerClient {
     }
     try {
       byte[] hash =
-          MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
+        MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
       StringBuilder hexString = new StringBuilder();
       for (byte b : hash) {
         hexString.append(String.format("%02X", b));
@@ -214,15 +217,14 @@ public class CloudSecretManagerClient {
     }
   }
 
-  private static SecretManagerServiceClient createClient(Map<String, String> properties)
-      throws IOException {
+  private static SecretManagerServiceClient createClient(Map<String, String> properties) throws IOException {
     SecretManagerServiceSettings.Builder settings = SecretManagerServiceSettings.newBuilder();
 
     createCredentialsProvider(properties)
-            .ifPresent(
-                (credentials) -> {
-                  settings.setCredentialsProvider(credentials);
-                });
+      .ifPresent(
+        (credentials) -> {
+          settings.setCredentialsProvider(credentials);
+        });
     return SecretManagerServiceClient.create(settings.build());
   }
 
@@ -230,14 +232,14 @@ public class CloudSecretManagerClient {
    * Returns a CredentialProvider if a service account file is configured in {@code properties},
    * otherwise returns empty.
    */
-  private static Optional<CredentialsProvider> createCredentialsProvider(
-      Map<String, String> properties) throws IOException {
+  private static Optional<CredentialsProvider> createCredentialsProvider(Map<String, String> properties)
+      throws IOException {
     String serviceAccountContents = properties.getOrDefault(SERVICE_ACCOUNT_FILE, "");
     if (serviceAccountContents.isEmpty()) {
       return Optional.empty();
     }
     GoogleCredentials credentials =
-        GoogleCredentials.fromStream(new ByteArrayInputStream(serviceAccountContents.getBytes()));
+      GoogleCredentials.fromStream(new ByteArrayInputStream(serviceAccountContents.getBytes()));
 
     return Optional.of(FixedCredentialsProvider.create(credentials));
   }

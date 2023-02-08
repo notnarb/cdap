@@ -106,8 +106,8 @@ public class GcpSecretManager implements SecretManager {
   public Collection<SecretMetadata> list(String namespace) throws IOException {
     try {
       return client.listSecrets(namespace).stream()
-          .map(WrappedSecret::getCdapSecretMetadata)
-          .collect(Collectors.toList());
+        .map(WrappedSecret::getCdapSecretMetadata)
+        .collect(Collectors.toList());
     } catch (ApiException e) {
       throw new IOException("Secret Manager list API call failed", e);
     }
