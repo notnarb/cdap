@@ -32,6 +32,8 @@ import com.google.cloud.secretmanager.v1.SecretPayload;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.FieldMask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -43,6 +45,7 @@ import java.util.Optional;
 
 /** Client for <a href="https://cloud.google.com/secret-manager">Google Cloud Secret Manager</a> */
 public class CloudSecretManagerClient {
+  private static final Logger LOG = LoggerFactory.getLogger(CloudSecretManagerClient.class);
   /**
    * Property that, if set, overrides which GCP project to use rather than the default (see
    * https://github.com/googleapis/google-cloud-java#specifying-a-project-id for default behavior).
@@ -108,20 +111,23 @@ public class CloudSecretManagerClient {
    * over all pages.
    *
    * @throws ApiException if Google API call fails.
-   * @throws IOException if parsing the JSON-encoded annotations failse.
    */
-  public ImmutableList<WrappedSecret> listSecrets(String namespace) throws IOException {
+  public ImmutableList<WrappedSecret> listSecrets(String namespace) {
     ListSecretsRequest request =
       ListSecretsRequest.newBuilder()
         .setFilter("annotations.cdap_namespace=" + namespace)
         .setParent(projectResourceName)
         .build();
 
-    // Iterate rather than stream to easily propagate checked exception.
     ImmutableList.Builder<WrappedSecret> secrets = ImmutableList.builder();
     for (ListSecretsPage page : secretManager.listSecrets(request).iteratePages()) {
       for (Secret secret : page.getResponse().getSecretsList()) {
-        secrets.add(WrappedSecret.fromGcpSecret(secret));
+        try {
+          secrets.add(WrappedSecret.fromGcpSecret(secret));
+        } catch (InvalidSecretException e) {
+          // Log and ignore parse failures.
+          LOG.error("Failed to parse secret.", e);
+        }
       }
     }
     return secrets.build();
@@ -144,9 +150,9 @@ public class CloudSecretManagerClient {
    * Returns the secret metadata for the specified secret. Does not fetch its secret payload.
    *
    * @throws ApiException if Google API call fails.
-   * @throws IOException if parsing the JSON-encoded annotations failse.
+   * @throws InvalidSecretException if parsing the JSON-encoded annotations fails.
    */
-  public WrappedSecret getSecret(String namespace, String name) throws IOException {
+  public WrappedSecret getSecret(String namespace, String name) throws InvalidSecretException {
     return WrappedSecret.fromGcpSecret(
       secretManager.getSecret(getSecretResourceName(namespace, name)));
   }

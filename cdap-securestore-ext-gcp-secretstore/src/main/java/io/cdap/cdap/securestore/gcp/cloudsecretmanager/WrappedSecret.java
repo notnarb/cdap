@@ -25,7 +25,7 @@ import com.google.gson.JsonSyntaxException;
 import com.google.protobuf.util.Timestamps;
 import io.cdap.cdap.securestore.spi.secret.SecretMetadata;
 
-import java.io.IOException;
+import java.lang.reflect.Type;
 import java.util.Map;
 import java.util.Optional;
 
@@ -38,6 +38,7 @@ import java.util.Optional;
  */
 public final class WrappedSecret {
   private static final Gson GSON = new Gson();
+  private static final Type PROP_MAP_TYPE = new TypeToken<Map<String, String>>() { }.getType();
 
   private final String namespace;
   private final SecretMetadata secretMetadata;
@@ -52,8 +53,11 @@ public final class WrappedSecret {
     return new WrappedSecret(namespace, metadata);
   }
 
-  /** Constructs a new WrappedSecret from a GCP Secret Manager Secret. */
-  public static WrappedSecret fromGcpSecret(Secret secret) throws IOException {
+  /**
+   * Constructs a new WrappedSecret from a GCP Secret Manager secret, throwing an
+   * {@link InvalidSecretException} if the secret cannot be parsed.
+   */
+  public static WrappedSecret fromGcpSecret(Secret secret) throws InvalidSecretException {
     String namespace = getNamespace(secret);
     SecretMetadata metadata = toSecretMetadata(secret);
     return new WrappedSecret(namespace, metadata);
@@ -80,14 +84,12 @@ public final class WrappedSecret {
       .setName(resourceName)
       .putAnnotations("cdap_namespace", namespace)
       .putAnnotations("cdap_secret_name", secretMetadata.getName())
-      .putAnnotations(
-          "cdap_description", Optional.ofNullable(secretMetadata.getDescription()).orElse(""))
+      .putAnnotations("cdap_description", Optional.ofNullable(secretMetadata.getDescription()).orElse(""))
       .putAnnotations("cdap_props", serializeProps(secretMetadata.getProperties()))
       .build();
   }
 
-  private static SecretMetadata toSecretMetadata(Secret secret) throws IOException {
-
+  private static SecretMetadata toSecretMetadata(Secret secret) throws InvalidSecretException {
     return new SecretMetadata(
       secret.getAnnotationsOrDefault("cdap_secret_name", ""),
       secret.getAnnotationsOrDefault("cdap_description", ""),
@@ -104,14 +106,14 @@ public final class WrappedSecret {
   }
 
   /**
-   * Parses {@code input} as JSON and returns the corresponding map, throwing an {@link IOException}
+   * Parses {@code input} as JSON and returns the corresponding map, throwing an {@link InvalidSecretException}
    * if parsing input fails.
    */
-  private static Map<String, String> deserializeProps(String input) throws IOException {
+  private static Map<String, String> deserializeProps(String input) throws InvalidSecretException {
     try {
-      return GSON.fromJson(input, new TypeToken<Map<String, String>>() { }.getType());
+      return GSON.fromJson(input, PROP_MAP_TYPE);
     } catch (JsonSyntaxException e) {
-      throw new IOException("Failed to parse cdap_props", e);
+      throw new InvalidSecretException("Failed to parse cdap_props", e);
     }
   }
 }

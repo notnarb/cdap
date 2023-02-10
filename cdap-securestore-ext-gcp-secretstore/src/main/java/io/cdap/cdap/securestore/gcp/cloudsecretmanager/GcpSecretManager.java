@@ -99,6 +99,8 @@ public class GcpSecretManager implements SecretManager {
         throw new SecretNotFoundException(namespace, name);
       }
       throw new IOException("Secret Manager get API call failed", e);
+    } catch (InvalidSecretException e) {
+      throw new IOException("Failed to parse secret", e);
     }
   }
 
